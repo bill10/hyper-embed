@@ -68,8 +68,11 @@ class HypergraphDataset(torch.utils.data.Dataset):
         label = torch.tensor(label)
         return data, label
 
-    def get_collate_fn(self):
-        return lambda batch: self.collate_fn_pad(batch, self.num_nodes)
+    def get_collate_fn(self, padding:int = None):
+        if padding:
+            return lambda batch: self.collate_fn_pad(batch, padding)
+        else:
+            return lambda batch: self.collate_fn_pad(batch, self.num_nodes)
 
 
 class HyperEmbed(nn.Module):
@@ -184,6 +187,7 @@ class DynamicHyperEmbed:
         log_interval: int = 10,
         log_callback: Callable = None,
     ):
+        collate_fn = hypergraph.get_collate_fn(self.num_nodes)
         for bid, batch in enumerate(
             tqdm(dataloader, desc="Batch", position=2, leave=False)
         ):
@@ -196,7 +200,7 @@ class DynamicHyperEmbed:
                 (tuple(sorted(random.sample(range(hypergraph.num_nodes), len(i)))), 0)
                 for i in batch[0]
             ]
-            neg_batch = hypergraph.get_collate_fn()(negative_samples)
+            neg_batch = collate_fn(negative_samples)
             preds = model(neg_batch[0])
             labels = neg_batch[1]
             neg_loss = loss_fn(preds, labels)
@@ -222,6 +226,7 @@ class DynamicHyperEmbed:
     def test(self, model, dataloader, hypergraph):
         successes = 0
         trials = 0
+        collate_fn = hypergraph.get_collate_fn(self.num_nodes)
         with torch.no_grad():
             model.eval()
             for bid, batch in enumerate(
@@ -237,7 +242,7 @@ class DynamicHyperEmbed:
                     )
                     for i in batch[0]
                 ]
-                neg_batch = hypergraph.get_collate_fn()(negative_samples)
+                neg_batch = collate_fn(negative_samples)
                 neg_preds = model(neg_batch[0])
                 successes += (pos_preds > neg_preds).sum().item()
                 trials += len(pos_preds)
@@ -279,7 +284,7 @@ class DynamicHyperEmbed:
                     hypergraph,
                     batch_size=batch_size,
                     shuffle=shuffle,
-                    collate_fn=hypergraph.get_collate_fn(),
+                    collate_fn=hypergraph.get_collate_fn(self.num_nodes),
                 )
                 # Create the models sequentially in first epoch
                 if epoch == 0:
@@ -322,7 +327,7 @@ class DynamicHyperEmbed:
                         test_graph,
                         batch_size=batch_size,
                         shuffle=False,
-                        collate_fn=test_graph.get_collate_fn(),
+                        collate_fn=test_graph.get_collate_fn(self.num_nodes),
                     )
                     metrics = self.test(self.models[time], test_dataloader, test_graph)
                     tb_logger.add_scalar("AUC/{}".format(time), metrics["AUC"], epoch)
