@@ -158,7 +158,7 @@ class DynamicHypergraphDataset:
         self.hypergraphs = {}
         self.time_keys = []
         self.num_nodes = 0
-        for folder in sorted(glob.glob(os.path.join(data_dir, "*"))):
+        for folder in tqdm(sorted(glob.glob(os.path.join(data_dir, "*"))), desc="Graph"):
             foldername = os.path.basename(folder)
             self.time_keys.append(int(foldername))
             self.hypergraphs[int(foldername)] = HypergraphDataset(folder)
@@ -378,9 +378,18 @@ class DynamicHyperEmbed:
                 self.models[key].state_dict(),
                 os.path.join(file_path, "model_" + key + ".pt"),
             )
+        torch.save(
+            {
+                "num_nodes": self.num_nodes,
+                "embedding_dim": self.embedding_dim,
+                "time_keys": self.time_keys,
+                "time_variance": self.time_variance
+            },
+            os.path.join(file_path, "model_config.pkl")
+        )
 
     def load(self, file_path):
         for filename in glob.glob(os.path.join(file_path, "model_*.pt")):
-            time_key = os.path.basename(filename)[6:-4]
+            time_key = os.path.basename(filename)[6:-3]
             self.models[time_key] = HyperEmbed(self.num_nodes, self.embedding_dim)
             self.models[time_key].load_state_dict(torch.load(filename))
