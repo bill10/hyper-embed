@@ -68,7 +68,7 @@ class HypergraphDataset(torch.utils.data.Dataset):
         label = torch.tensor(label)
         return data, label
 
-    def get_collate_fn(self, padding:int = None):
+    def get_collate_fn(self, padding: int = None):
         if padding:
             return lambda batch: self.collate_fn_pad(batch, padding)
         else:
@@ -116,7 +116,7 @@ class HyperEmbed(nn.Module):
         """Forward pass.
 
         Args:
-            combinations (torch.Tensor): A matrix of combinations. Each row is a
+            combinations (torch.Tensor): A 2D array of combinations. Each row is a
                 a list of node IDs, which corresponds to a combination. 
                 The rows might be padded to form the matrix. 
 
@@ -126,6 +126,22 @@ class HyperEmbed(nn.Module):
         out = self.embedding(combinations)
         out = out.prod(dim=1).sum(dim=-1)
         return out
+
+    def get_novelty(self, combinations: torch.Tensor):
+        """Calculate novelty of the given combinations.
+
+        Args:
+            combinations (torch.Tensor): A 2D array of combinations. Each row is a
+                a list of node IDs, which corresponds to a combination. 
+                The rows might be padded to form the matrix. 
+
+        Returns:
+            torch.Tensor: Novelty scores of the input combinations.
+        """
+        out = self.embedding(combinations)
+        propensities = out.prod(dim=1).sum(dim=-1)
+        popularities = out.sum(dim=-1).prod(dim=-1)
+        return propensities / popularities
 
 
 class DynamicHypergraphDataset:
@@ -163,7 +179,7 @@ class DynamicHyperEmbed:
             embedding_dim (int): Dimension of the embedding vector for each node.
             time_keys (list): A list of time keys (integer timestamps) of the hypergraph snapshots.
             time_variance (float): Variance of embeddings between time snapshots.
-        """    
+        """
         super().__init__()
         self.models = {}
         self.num_nodes = num_nodes
@@ -172,8 +188,31 @@ class DynamicHyperEmbed:
         self.time_variance = time_variance
         self.optimizers = {}
 
-    def forward(self, t: int, x: list):
-        return self.models[t](x)
+    def get_propensity(self, t: int, combinations: torch.tensor):
+        """Calculate propensity of the given combinations with embeddings from time t.
+
+        Args:
+            combinations (torch.Tensor): A 2D array of combinations. Each row is a
+                a list of node IDs, which corresponds to a combination. 
+                The rows might be padded to form the matrix. 
+
+        Returns:
+            torch.Tensor: Propensity scores of the input combinations.
+        """
+        return self.models[t](combinations)
+
+    def get_novelty(self, t: int, combinations: torch.tensor):
+        """Calculate novelty of the given combinations with embeddings from time t.
+
+        Args:
+            combinations (torch.Tensor): A 2D array of combinations. Each row is a
+                a list of node IDs, which corresponds to a combination. 
+                The rows might be padded to form the matrix. 
+
+        Returns:
+            torch.Tensor: Novelty scores of the input combinations.
+        """
+        return self.models[t].get_novelty(combinations)
 
     def train_one_graph(
         self,
@@ -256,7 +295,7 @@ class DynamicHyperEmbed:
         shuffle: bool = True,
         lr: float = 0.001,
         start_epoch: int = 0,
-        loss_fn = None,
+        loss_fn: Callable = None,
         log_dir: str = None,
         log_interval: int = 10,
     ):
@@ -332,3 +371,16 @@ class DynamicHyperEmbed:
                     metrics = self.test(self.models[time], test_dataloader, test_graph)
                     tb_logger.add_scalar("AUC/{}".format(time), metrics["AUC"], epoch)
                 tb_logger.flush()
+
+    def save(self, file_path):
+        for key in tqdm(self.models):
+            torch.save(
+                self.models[key].state_dict(),
+                os.path.join(file_path, "model_" + key + ".pt"),
+            )
+
+    def load(self, file_path):
+        for filename in glob.glob(os.path.join(file_path, "model_*.pt")):
+            time_key = os.path.basename(filename)[6:-4]
+            self.models[time_key] = HyperEmbed(self.num_nodes, self.embedding_dim)
+            self.models[time_key].load_state_dict(torch.load(filename))
