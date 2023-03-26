@@ -158,8 +158,10 @@ class DynamicHypergraphDataset:
         self.hypergraphs = {}
         self.time_keys = []
         self.num_nodes = 0
-        for folder in tqdm(sorted(glob.glob(os.path.join(data_dir, "*"))), desc="Graph"):
+        pbar = tqdm(sorted(glob.glob(os.path.join(data_dir, "*"))))
+        for folder in pbar:
             foldername = os.path.basename(folder)
+            pbar.set_description("Loading {}. Overall".format(foldername))
             self.time_keys.append(int(foldername))
             self.hypergraphs[int(foldername)] = HypergraphDataset(folder)
             self.num_nodes = max(
@@ -373,7 +375,9 @@ class DynamicHyperEmbed:
                 tb_logger.flush()
 
     def save(self, file_path):
-        for key in tqdm(self.models):
+        pbar = tqdm(self.models)
+        for key in pbar:
+            pbar.set_description("Saving {}. Overall".format(key))
             torch.save(
                 self.models[key].state_dict(),
                 os.path.join(file_path, "model_" + key + ".pt"),
@@ -389,7 +393,9 @@ class DynamicHyperEmbed:
         )
 
     def load(self, file_path):
-        for filename in glob.glob(os.path.join(file_path, "model_*.pt")):
+        pbar = tqdm(sorted(glob.glob(os.path.join(file_path, "model_*.pt"))))
+        for filename in pbar:
             time_key = os.path.basename(filename)[6:-3]
+            pbar.set_description("Loading {}. Overall".format(time_key))
             self.models[time_key] = HyperEmbed(self.num_nodes, self.embedding_dim)
             self.models[time_key].load_state_dict(torch.load(filename))
