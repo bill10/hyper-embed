@@ -26,18 +26,17 @@ class HypergraphDataset(torch.utils.data.Dataset):
                 0 and number_of_nodes-1. Edge IDs can be anything.
             sep: Separator/delimiter of fields in a data file. Defaults to ','.
             aggregate (bool, optional): If True, duplicated hyperedges will be
-                merged into one hyperedge, which is weighted by its number 
-                occurances. If False, duplicated hyperedges are removed. 
-                Defaults to True.
+                merged into one hyperedge, which is weighted by its number of 
+                occurances. Defaults to True.
         """
-        self.edge_id = []
+        edge_id = []
         hyperedges = []
         num_nodes = -1
         for filename in glob.glob(os.path.join(data_dir, "*")):
             with open(filename) as infile:
                 for line in infile:
                     items = line.split(sep)
-                    self.edge_id.append(items[0])
+                    edge_id.append(items[0])
                     edge = tuple(sorted(int(i) for i in items[1:]))
                     hyperedges.append(edge)
                     num_nodes = max(num_nodes, max(edge))
@@ -45,7 +44,7 @@ class HypergraphDataset(torch.utils.data.Dataset):
         if aggregate:
             self.hyperedges = list(Counter(hyperedges).items())
         else:
-            self.hyperedges = {i: 1 for i in hyperedges}
+            self.hyperedges = list(zip(hyperedges, edge_id))
         self.num_edges = len(self.hyperedges)
 
     def __len__(self):
@@ -55,24 +54,23 @@ class HypergraphDataset(torch.utils.data.Dataset):
         return self.hyperedges[idx]
 
     @staticmethod
-    def collate_fn_pad(batch, padding_value: int):
+    def collate_fn_pad(batch, padding_value: int, label_tensor: bool = True):
         """
         Pad batch of variable length
         """
         ## pad
-        batch = [(torch.tensor(t[0]), t[1]) for t in batch]
-        data, label = zip(*batch)
+        batch = [(torch.tensor(t[0]), t[1], len(t[0])) for t in batch]
+        data, label, lengths = zip(*batch)
         data = nn.utils.rnn.pad_sequence(
             data, batch_first=True, padding_value=padding_value
         )
-        label = torch.tensor(label)
-        return data, label
+        if label_tensor:
+            label = torch.tensor(label)
+        return data, label, torch.tensor(lengths)
 
-    def get_collate_fn(self, padding: int = None):
-        if padding:
-            return lambda batch: self.collate_fn_pad(batch, padding)
-        else:
-            return lambda batch: self.collate_fn_pad(batch, self.num_nodes)
+    def get_collate_fn(self, padding: int = None, label_tensor: bool = True):
+        padding_value = padding if padding else self.num_nodes
+        return lambda batch: self.collate_fn_pad(batch, padding_value, label_tensor)           
 
 
 class HyperEmbed(nn.Module):
@@ -127,25 +125,28 @@ class HyperEmbed(nn.Module):
         out = out.prod(dim=1).sum(dim=-1)
         return out
 
-    def get_novelty(self, combinations: torch.Tensor):
+    def get_novelty(self, combinations: torch.Tensor, comb_sizes: torch.Tensor):
         """Calculate novelty of the given combinations.
 
         Args:
             combinations (torch.Tensor): A 2D array of combinations. Each row is a
                 a list of node IDs, which corresponds to a combination. 
                 The rows might be padded to form the matrix. 
+            comb_sizes (torch.Tensor): A 1D array of the size of each given
+                combination.
 
         Returns:
             torch.Tensor: Novelty scores of the input combinations.
         """
         out = self.embedding(combinations)
         propensities = out.prod(dim=1).sum(dim=-1)
-        popularities = out.sum(dim=-1).prod(dim=-1)
+        popularities = out.sum(dim=-1).cumprod(dim=-1)
+        popularities = torch.gather(popularities, 1, comb_sizes.unsqueeze(1)-1).squeeze()
         return propensities / popularities
 
 
 class DynamicHypergraphDataset:
-    def __init__(self, data_dir: str):
+    def __init__(self, data_dir: str, sep: str = ",",  aggregate: bool = True):
         """Dataset for a (temporal) sequence of hypergraphs.
 
         Args:
@@ -154,6 +155,10 @@ class DynamicHypergraphDataset:
                 sub directory name is used as the timestamp for the snapshot. The
                 timestamps (sub directory names) have to be integers but don't
                 have to be consecutive.
+            sep: Separator/delimiter of fields in a data file. Defaults to ','.
+            aggregate (bool, optional): If True, duplicated hyperedges will be
+                merged into one hyperedge, which is weighted by its number of 
+                occurances. Defaults to True.
         """
         self.hypergraphs = {}
         self.time_keys = []
@@ -161,12 +166,12 @@ class DynamicHypergraphDataset:
         pbar = tqdm(sorted(glob.glob(os.path.join(data_dir, "*"))))
         for folder in pbar:
             foldername = os.path.basename(folder)
-            pbar.set_description("Loading {}. Overall".format(foldername))
             self.time_keys.append(int(foldername))
-            self.hypergraphs[int(foldername)] = HypergraphDataset(folder)
+            self.hypergraphs[int(foldername)] = HypergraphDataset(folder, sep, aggregate)
             self.num_nodes = max(
                 self.num_nodes, self.hypergraphs[int(foldername)].num_nodes
             )
+            pbar.set_description("Loaded {}. Overall".format(foldername))
         self.time_keys = sorted(self.time_keys)
 
 
@@ -203,18 +208,20 @@ class DynamicHyperEmbed:
         """
         return self.models[t](combinations)
 
-    def get_novelty(self, t: int, combinations: torch.tensor):
+    def get_novelty(self, t: int, combinations: torch.Tensor, comb_sizes: torch.Tensor):
         """Calculate novelty of the given combinations with embeddings from time t.
 
         Args:
             combinations (torch.Tensor): A 2D array of combinations. Each row is a
                 a list of node IDs, which corresponds to a combination. 
                 The rows might be padded to form the matrix. 
+            comb_sizes (torch.Tensor): A 1D array of the size of each given
+                combination.
 
         Returns:
             torch.Tensor: Novelty scores of the input combinations.
         """
-        return self.models[t].get_novelty(combinations)
+        return self.models[t].get_novelty(combinations, comb_sizes)
 
     def train_one_graph(
         self,
@@ -377,11 +384,11 @@ class DynamicHyperEmbed:
     def save(self, file_path):
         pbar = tqdm(self.models)
         for key in pbar:
-            pbar.set_description("Saving {}. Overall".format(key))
             torch.save(
                 self.models[key].state_dict(),
                 os.path.join(file_path, "model_" + key + ".pt"),
             )
+            pbar.set_description("Saved {}. Overall".format(key))
         torch.save(
             {
                 "num_nodes": self.num_nodes,
@@ -395,7 +402,7 @@ class DynamicHyperEmbed:
     def load(self, file_path):
         pbar = tqdm(sorted(glob.glob(os.path.join(file_path, "model_*.pt"))))
         for filename in pbar:
-            time_key = os.path.basename(filename)[6:-3]
-            pbar.set_description("Loading {}. Overall".format(time_key))
+            time_key = int(os.path.basename(filename)[6:-3])
             self.models[time_key] = HyperEmbed(self.num_nodes, self.embedding_dim)
             self.models[time_key].load_state_dict(torch.load(filename))
+            pbar.set_description("Loaded {}. Overall".format(time_key))
