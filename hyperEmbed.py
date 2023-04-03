@@ -382,11 +382,12 @@ class DynamicHyperEmbed:
                 tb_logger.flush()
 
     def save(self, file_path):
+        os.makedirs(file_path, exist_ok=True)
         pbar = tqdm(self.models)
         for key in pbar:
             torch.save(
                 self.models[key].state_dict(),
-                os.path.join(file_path, "model_" + key + ".pt"),
+                os.path.join(file_path, "model_{}.pt".format(key)),
             )
             pbar.set_description("Saved {}. Overall".format(key))
         torch.save(
