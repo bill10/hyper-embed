@@ -345,7 +345,7 @@ class DynamicHyperEmbed:
                             self.num_nodes,
                             embedding=self.models[
                                 prev_time
-                            ].embedding.weight.data.detach(),
+                            ].embedding.weight.data.detach().clone(),
                         )
                     global_steps[time] = 0
                     # Create optimizer as well
