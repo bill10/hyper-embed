@@ -37,7 +37,7 @@ class HypergraphDataset(torch.utils.data.Dataset):
                 for line in infile:
                     items = line.split(sep)
                     edge_id.append(items[0])
-                    edge = tuple(sorted(int(i) for i in items[1:]))
+                    edge = tuple(sorted(int(i.strip('\x00\n')) for i in items[1:]))
                     hyperedges.append(edge)
                     num_nodes = max(num_nodes, max(edge))
         self.num_nodes = num_nodes + 1
