@@ -1,0 +1,7 @@
+tqdm
+ipywidgets
+scipy
+pandas
+tensorboard
+matplotlib
+torch --index-url https://download.pytorch.org/whl/cu118
