@@ -177,7 +177,7 @@ class DynamicHypergraphDataset:
 
 class DynamicHyperEmbed:
     def __init__(
-        self, num_nodes: int, embedding_dim: int, time_keys: list, time_variance: float
+        self, num_nodes: int, embedding_dim: int, time_keys: list, time_variance: float, device: str="cpu"
     ):
         """HyperEmbed model for a (temporal) sequence of hypergraphs.
 
@@ -186,6 +186,7 @@ class DynamicHyperEmbed:
             embedding_dim (int): Dimension of the embedding vector for each node.
             time_keys (list): A list of time keys (integer timestamps) of the hypergraph snapshots.
             time_variance (float): Variance of embeddings between time snapshots.
+            device (str, optional): Device used for computing. Defaults to cpu.
         """
         super().__init__()
         self.models = {}
@@ -194,6 +195,7 @@ class DynamicHyperEmbed:
         self.time_keys = time_keys
         self.time_variance = time_variance
         self.optimizers = {}
+        self.device = device
 
     def get_propensity(self, t: int, combinations: torch.tensor):
         """Calculate propensity of the given combinations with embeddings from time t.
@@ -235,13 +237,15 @@ class DynamicHyperEmbed:
         log_interval: int = 10,
         log_callback: Callable = None,
     ):
+        model.train()
         collate_fn = hypergraph.get_collate_fn(self.num_nodes)
         for bid, batch in enumerate(
             tqdm(dataloader, desc="Batch", position=2, leave=False)
         ):
             # Loss on hyperedges
-            preds = model(batch[0])
-            labels = batch[1]
+            inputs = batch[0].to(self.device)
+            preds = model(inputs)
+            labels = batch[1].to(self.device)
             pos_loss = loss_fn(preds, labels)
             # Loss on random combinations
             negative_samples = [
@@ -249,8 +253,9 @@ class DynamicHyperEmbed:
                 for i in batch[0]
             ]
             neg_batch = collate_fn(negative_samples)
-            preds = model(neg_batch[0])
-            labels = neg_batch[1]
+            neg_inputs = neg_batch[0].to(self.device)
+            preds = model(neg_inputs)
+            labels = neg_batch[1].to(self.device)
             neg_loss = loss_fn(preds, labels)
             # Total loss
             loss = pos_loss + neg_loss
@@ -280,7 +285,8 @@ class DynamicHyperEmbed:
             for bid, batch in enumerate(
                 tqdm(dataloader, desc="Evaluate", position=2, leave=False)
             ):
-                pos_preds = model(batch[0])
+                inputs = batch[0].to(self.device)
+                pos_preds = model(inputs)
                 negative_samples = [
                     (
                         tuple(
@@ -291,7 +297,8 @@ class DynamicHyperEmbed:
                     for i in batch[0]
                 ]
                 neg_batch = collate_fn(negative_samples)
-                neg_preds = model(neg_batch[0])
+                neg_inputs = neg_batch[0].to(self.device)
+                neg_preds = model(neg_inputs)
                 successes += (pos_preds > neg_preds).sum().item()
                 trials += len(pos_preds)
         return {"AUC": successes / trials}
@@ -347,6 +354,7 @@ class DynamicHyperEmbed:
                                 prev_time
                             ].embedding.weight.data.detach().clone(),
                         )
+                    self.models[time].to(self.device)
                     global_steps[time] = 0
                     # Create optimizer as well
                     self.optimizers[time] = torch.optim.SGD(
@@ -406,4 +414,5 @@ class DynamicHyperEmbed:
             time_key = int(os.path.basename(filename)[6:-3])
             self.models[time_key] = HyperEmbed(self.num_nodes, self.embedding_dim)
             self.models[time_key].load_state_dict(torch.load(filename))
+            self.models[time_key].to(self.device)
             pbar.set_description("Loaded {}. Overall".format(time_key))
