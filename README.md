@@ -1,7 +1,7 @@
 # hyper-embed
 
 ## Usage
-To use this package, copy the `hyperEmbed.py` file to your working directory, and follow the example `medline.ipynb` notebook.
+To use this package, copy the `hyperEmbed.py` file to your working directory, and follow the example `medline.ipynb` notebook (or `medline_gpu.ipynb` if you would like to use GPU).
 
 ### Requirements
 
