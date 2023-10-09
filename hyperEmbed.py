@@ -413,6 +413,6 @@ class DynamicHyperEmbed:
         for filename in pbar:
             time_key = int(os.path.basename(filename)[6:-3])
             self.models[time_key] = HyperEmbed(self.num_nodes, self.embedding_dim)
-            self.models[time_key].load_state_dict(torch.load(filename))
+            self.models[time_key].load_state_dict(torch.load(filename, map_location=self.device))
             self.models[time_key].to(self.device)
             pbar.set_description("Loaded {}. Overall".format(time_key))
