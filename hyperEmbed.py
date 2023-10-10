@@ -382,17 +382,17 @@ class DynamicHyperEmbed:
                 log_loss(loss, global_steps[time], epoch, time, tb_logger)
                 # Testing
                 if do_eval:
-				    if t != len(self.time_keys) - 1:
-				        next_time = self.time_keys[t + 1]
-				        test_graph = dataset.hypergraphs[next_time]
-				        test_dataloader = DataLoader(
-				            test_graph,
-				            batch_size=batch_size,
-				            shuffle=False,
-				            collate_fn=test_graph.get_collate_fn(self.num_nodes),
-				        )
-				        metrics = self.test(self.models[time], test_dataloader, test_graph)
-				        tb_logger.add_scalar("AUC/{}".format(time), metrics["AUC"], epoch)
+                    if t != len(self.time_keys) - 1:
+                        next_time = self.time_keys[t + 1]
+                        test_graph = dataset.hypergraphs[next_time]
+                        test_dataloader = DataLoader(
+                                test_graph,
+                                batch_size=batch_size,
+                                shuffle=False,
+                                collate_fn=test_graph.get_collate_fn(self.num_nodes),
+                                )
+                        metrics = self.test(self.models[time], test_dataloader, test_graph)
+                        tb_logger.add_scalar("AUC/{}".format(time), metrics["AUC"], epoch)
                 tb_logger.flush()
             if checkpoint_dir:
                 os.makedirs(os.path.join(checkpoint_dir, "epoch_{}".format(epoch)))
