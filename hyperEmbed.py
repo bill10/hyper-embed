@@ -412,7 +412,7 @@ class DynamicHyperEmbed:
                     },
                     os.path.join(checkpoint_dir, "epoch_{}".format(epoch), "train_env.pkl")
                 )
-                self.save(os.path.join(checkpoint_dir, "epoch_{}".format(epoch)))
+                self.save(os.path.join(checkpoint_dir, "epoch_{}".format(epoch)), leave_pbar=False)
     
     def resume_train_from_checkpoint(self, checkpoint_dir: str, dataset: DynamicHypergraphDataset):
         train_env = torch.load(os.path.join(checkpoint_dir, "train_env.pkl"))
@@ -436,9 +436,9 @@ class DynamicHyperEmbed:
             do_eval=train_env["do_eval"],
         )
 
-    def save(self, file_path):
+    def save(self, file_path, leave_pbar=True):
         os.makedirs(file_path, exist_ok=True)
-        pbar = tqdm(self.models)
+        pbar = tqdm(self.models, leave=leave_pbar)
         for key in pbar:
             torch.save(
                 self.models[key].state_dict(),
