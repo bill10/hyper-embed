@@ -434,7 +434,7 @@ class DynamicHyperEmbed:
 
     def save(self, file_path):
         os.makedirs(file_path, exist_ok=True)
-        pbar = tqdm(self.models)
+        pbar = tqdm(self.models, leave=False)
         for key in pbar:
             torch.save(
                 self.models[key].state_dict(),
