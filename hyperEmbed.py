@@ -315,7 +315,8 @@ class DynamicHyperEmbed:
         log_dir: str = None,
         log_interval: int = 10,
         checkpoint_dir: str = None,
-        global_steps: dict = {}
+        global_steps: dict = {},
+        do_eval: bool = True,
     ):
         # Set up logging
         if not log_dir:
@@ -380,17 +381,18 @@ class DynamicHyperEmbed:
                 global_steps[time] = steps
                 log_loss(loss, global_steps[time], epoch, time, tb_logger)
                 # Testing
-                if t != len(self.time_keys) - 1:
-                    next_time = self.time_keys[t + 1]
-                    test_graph = dataset.hypergraphs[next_time]
-                    test_dataloader = DataLoader(
-                        test_graph,
-                        batch_size=batch_size,
-                        shuffle=False,
-                        collate_fn=test_graph.get_collate_fn(self.num_nodes),
-                    )
-                    metrics = self.test(self.models[time], test_dataloader, test_graph)
-                    tb_logger.add_scalar("AUC/{}".format(time), metrics["AUC"], epoch)
+                if do_eval:
+				    if t != len(self.time_keys) - 1:
+				        next_time = self.time_keys[t + 1]
+				        test_graph = dataset.hypergraphs[next_time]
+				        test_dataloader = DataLoader(
+				            test_graph,
+				            batch_size=batch_size,
+				            shuffle=False,
+				            collate_fn=test_graph.get_collate_fn(self.num_nodes),
+				        )
+				        metrics = self.test(self.models[time], test_dataloader, test_graph)
+				        tb_logger.add_scalar("AUC/{}".format(time), metrics["AUC"], epoch)
                 tb_logger.flush()
             if checkpoint_dir:
                 os.makedirs(os.path.join(checkpoint_dir, "epoch_{}".format(epoch)))
@@ -405,7 +407,8 @@ class DynamicHyperEmbed:
                         "log_dir": log_dir,
                         "log_interval": log_interval,
                         "global_steps": global_steps,
-                        "checkpoint_dir": checkpoint_dir
+                        "checkpoint_dir": checkpoint_dir,
+                        "do_eval": do_eval,
                     },
                     os.path.join(checkpoint_dir, "epoch_{}".format(epoch), "train_env.pkl")
                 )
@@ -429,7 +432,8 @@ class DynamicHyperEmbed:
             log_dir=train_env["log_dir"],
             log_interval=train_env["log_interval"],
             checkpoint_dir=train_env["checkpoint_dir"],
-            global_steps=train_env["global_steps"]
+            global_steps=train_env["global_steps"],
+            do_eval=train_env["do_eval"],
         )
 
     def save(self, file_path):
