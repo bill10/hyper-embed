@@ -314,6 +314,8 @@ class DynamicHyperEmbed:
         loss_fn: Callable = None,
         log_dir: str = None,
         log_interval: int = 10,
+        checkpoint_dir: str = None,
+        global_steps: dict = {}
     ):
         # Set up logging
         if not log_dir:
@@ -324,12 +326,14 @@ class DynamicHyperEmbed:
             tb_logger.add_scalars(
                 "Loss/{}".format(time), {"Epoch_{}".format(epoch): loss}, steps
             )
+        
+        if checkpoint_dir:
+            os.makedirs(checkpoint_dir, exist_ok=True)
 
         # Set up loss function
         if loss_fn is None:
             loss_fn = nn.PoissonNLLLoss(log_input=False)
         # Start training
-        global_steps = {}
         for epoch in tqdm(range(start_epoch, num_epochs), desc="Epoch", position=0):
             for t in trange(len(self.time_keys), desc="Time", position=1, leave=False):
                 time = self.time_keys[t]
@@ -388,6 +392,45 @@ class DynamicHyperEmbed:
                     metrics = self.test(self.models[time], test_dataloader, test_graph)
                     tb_logger.add_scalar("AUC/{}".format(time), metrics["AUC"], epoch)
                 tb_logger.flush()
+            if checkpoint_dir:
+                os.makedirs(os.path.join(checkpoint_dir, "epoch_{}".format(epoch)))
+                torch.save(
+                    {
+                        "num_epochs": num_epochs,
+                        "batch_size": batch_size,
+                        "shuffle": shuffle,
+                        "lr": lr,
+                        "start_epoch": epoch+1,
+                        "loss_fn": loss_fn,
+                        "log_dir": log_dir,
+                        "log_interval": log_interval,
+                        "global_steps": global_steps,
+                        "checkpoint_dir": checkpoint_dir
+                    },
+                    os.path.join(checkpoint_dir, "epoch_{}".format(epoch), "train_env.pkl")
+                )
+                self.save(os.path.join(checkpoint_dir, "epoch_{}".format(epoch)))
+    
+    def resume_train_from_checkpoint(self, checkpoint_dir: str, dataset: DynamicHypergraphDataset):
+        train_env = torch.load(os.path.join(checkpoint_dir, "train_env.pkl"))
+        self.load(checkpoint_dir)
+        for time in self.models:
+            self.optimizers[time] = torch.optim.SGD(
+                self.models[time].parameters(), lr=train_env["lr"]
+            )
+        self.train(
+            dataset=dataset,
+            num_epochs=train_env["num_epochs"],
+            batch_size=train_env["batch_size"],
+            shuffle=train_env["shuffle"],
+            lr=train_env["lr"],
+            start_epoch=train_env["start_epoch"],
+            loss_fn=train_env["loss_fn"],
+            log_dir=train_env["log_dir"],
+            log_interval=train_env["log_interval"],
+            checkpoint_dir=train_env["checkpoint_dir"],
+            global_steps=train_env["global_steps"]
+        )
 
     def save(self, file_path):
         os.makedirs(file_path, exist_ok=True)
