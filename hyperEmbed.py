@@ -317,6 +317,8 @@ class DynamicHyperEmbed:
         checkpoint_dir: str = None,
         global_steps: dict = {},
         do_eval: bool = True,
+        pin_memory: bool = False,
+        prefetch_factor: int = 2,
     ):
         # Set up logging
         if not log_dir:
@@ -328,6 +330,9 @@ class DynamicHyperEmbed:
                 "Loss/{}".format(time), {"Epoch_{}".format(epoch): loss}, steps
             )
         
+        if self.device == "cpu":
+            pin_memory=False
+
         if checkpoint_dir:
             os.makedirs(checkpoint_dir, exist_ok=True)
 
@@ -340,12 +345,23 @@ class DynamicHyperEmbed:
                 time = self.time_keys[t]
                 prev_time = self.time_keys[t - 1] if t > 0 else None
                 hypergraph = dataset.hypergraphs[time]
-                train_dataloader = DataLoader(
-                    hypergraph,
-                    batch_size=batch_size,
-                    shuffle=shuffle,
-                    collate_fn=hypergraph.get_collate_fn(self.num_nodes),
-                )
+                if pin_memory:
+                    train_dataloader = DataLoader(
+                        hypergraph,
+                        batch_size=batch_size,
+                        shuffle=shuffle,
+                        collate_fn=hypergraph.get_collate_fn(self.num_nodes),
+                        pin_memory=pin_memory,
+                        pin_memory_device=self.device,
+                        prefetch_factor=prefetch_factor,
+                    )
+                else:
+                    train_dataloader = DataLoader(
+                        hypergraph,
+                        batch_size=batch_size,
+                        shuffle=shuffle,
+                        collate_fn=hypergraph.get_collate_fn(self.num_nodes),
+                    )
                 # Create the models sequentially in first epoch
                 if epoch == 0:
                     if t == 0:
@@ -385,12 +401,23 @@ class DynamicHyperEmbed:
                     if t != len(self.time_keys) - 1:
                         next_time = self.time_keys[t + 1]
                         test_graph = dataset.hypergraphs[next_time]
-                        test_dataloader = DataLoader(
-                                test_graph,
-                                batch_size=batch_size,
-                                shuffle=False,
-                                collate_fn=test_graph.get_collate_fn(self.num_nodes),
-                                )
+                        if pin_memory:
+                            test_dataloader = DataLoader(
+                                    test_graph,
+                                    batch_size=batch_size,
+                                    shuffle=False,
+                                    collate_fn=test_graph.get_collate_fn(self.num_nodes),
+                                    pin_memory=pin_memory,
+                                    pin_memory_device=self.device,
+                                    prefetch_factor=prefetch_factor,
+                            )
+                        else:
+                            test_dataloader = DataLoader(
+                                    test_graph,
+                                    batch_size=batch_size,
+                                    shuffle=False,
+                                    collate_fn=test_graph.get_collate_fn(self.num_nodes),
+                                    )
                         metrics = self.test(self.models[time], test_dataloader, test_graph)
                         tb_logger.add_scalar("AUC/{}".format(time), metrics["AUC"], epoch)
                 tb_logger.flush()
@@ -409,6 +436,8 @@ class DynamicHyperEmbed:
                         "global_steps": global_steps,
                         "checkpoint_dir": checkpoint_dir,
                         "do_eval": do_eval,
+                        "pin_memory": pin_memory,
+                        "prefetch_factor": prefetch_factor,
                     },
                     os.path.join(checkpoint_dir, "epoch_{}".format(epoch), "train_env.pkl")
                 )
@@ -434,6 +463,8 @@ class DynamicHyperEmbed:
             checkpoint_dir=train_env["checkpoint_dir"],
             global_steps=train_env["global_steps"],
             do_eval=train_env["do_eval"],
+            pin_memory=train_env["pin_memory"],
+            prefetch_factor=["prefetch_factor"],
         )
 
     def save(self, file_path, leave_pbar=True):
