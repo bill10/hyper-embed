@@ -464,7 +464,7 @@ class DynamicHyperEmbed:
             global_steps=train_env["global_steps"],
             do_eval=train_env["do_eval"],
             pin_memory=train_env["pin_memory"],
-            prefetch_factor=["prefetch_factor"],
+            prefetch_factor=train_env["prefetch_factor"],
         )
 
     def save(self, file_path, leave_pbar=True):
